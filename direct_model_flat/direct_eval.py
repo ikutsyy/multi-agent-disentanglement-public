@@ -1,0 +1,92 @@
+import os
+import pickle
+
+import numpy as np
+from matplotlib import pyplot as plt
+
+from disentanglement.direct_model_flat import train_direct
+from disentanglement.direct_model_flat.direct_model_parameters import BATCH_SIZE
+from disentanglement.direct_model_flat.train_direct import get_models, test
+from disentanglement.message_level import load_data
+from disentanglement.message_level.evaluate import plot_with_std, plot_accuracies
+from disentanglement.message_level.load_data import get_data
+from scipy.ndimage import uniform_filter1d
+
+
+def multi_checkpoint_eval(results_dir, num, savedir="saved_models/checkpoints", load=True):
+    if not load:
+        _, testdata, _ = get_data(499 * 2, 2, agent=True)
+        losses = []
+        recons = []
+        labelcatloglist = []
+        predcatloglist = []
+        for x in range(num):
+            modelname = "checkpoint_" + str(x) + "_model.pkl"
+            logname = modelname.replace("model", "logs").replace("checkpoint_","checkpoint")
+            model,loss_log = get_models(savedir, modelname, logname, data_name=None, load=True)
+            print("Model", x)
+            loss, r ,lc,pc = test(testdata,model,computecat=True)
+            print("LOSS", np.mean(loss))
+            print("Reconstruction", [(k, np.mean(y)) for k, y in r.items()])
+            losses.append(loss)
+            recons.append(r)
+            labelcatloglist.append(lc)
+            predcatloglist.append(pc)
+        # with open(os.path.join(results_dir, "test_data.pkl"), 'wb') as f:
+        #     pickle.dump((elbos, recons,labelcatloglist,predcatloglist), f)
+    else:
+        with open(os.path.join(results_dir, "test_data.pkl"), 'rb') as f:
+            modelname = "checkpoint_" + str(num - 1) + "_model.pkl"
+            logname = modelname.replace("model", "logs")
+            _,loss_log = get_models(savedir, modelname, logname, data_name=None, load=True)
+            losses, recons,labelcatloglist,predcatloglist = pickle.load(f)
+
+    plotlogs(loss)
+    plt.savefig(os.path.join(results_dir, "training_logs.png"),bbox_inches='tight')
+    plt.clf()
+
+    plot_with_std([{"ELBO": e} for e in losses],10000, "Test Loss, excluding 1% extremes", outlier=0.01)
+    plt.savefig(os.path.join(results_dir, "test_ELBO.png"),bbox_inches='tight')
+    plt.clf()
+
+    plot_with_std(recons, 10000, "Test Reconstruction Error", isrecon=True)
+    plt.savefig(os.path.join(results_dir, "test_reconstruction.png"),bbox_inches='tight')
+    plt.clf()
+
+    plot_accuracies( labelcatloglist,predcatloglist,"Binarized Agent Observation Error",agents=True)
+    plt.savefig(os.path.join(results_dir, "test_reconstruction_cat_agents.png"),bbox_inches='tight')
+    plt.clf()
+
+    plot_accuracies(labelcatloglist, predcatloglist, "Binarized Target Observation Error",agents=False)
+    plt.savefig(os.path.join(results_dir, "test_reconstruction_cat_targets.png"),bbox_inches='tight')
+    plt.clf()
+
+def plotlogs(loss, title='Training statistics'):
+    t = range(len(loss))
+    fig = plt.figure(figsize=(6, 6))
+    grid = plt.GridSpec(1, 1, hspace=0.2, wspace=0.2)
+    top = fig.add_subplot(grid[0, :])
+    fig.suptitle(title)
+
+    y = uniform_filter1d(loss, size=1000)
+    top.plot(t, loss)
+    top.plot(t, y)
+    top.set_title("VAE Loss")
+    top.set_ylim([np.min(np.nan_to_num(loss)), min(np.max(np.nan_to_num(loss)), 100)])
+
+def get_reconstruction_error(model, test_data=None, computecat=True):
+    if test_data is None:
+        batch_size = BATCH_SIZE
+        _, test_data, _ = load_data.get_data(batch_size)
+
+    if computecat:
+        _, errors,labelcat,predcat = train_direct.test(test_data, model,computecat=True)
+        return errors,labelcat,predcat
+    else:
+        _, errors,labelcat,predcat = train_direct.test(test_data, model,computecat=False)
+        return errors
+
+if __name__ == '__main__':
+    checkpointdir = "../direct_model/saved_models/partial_checkpoints"
+    epochs=20
+    multi_checkpoint_eval("partial_results", num=epochs, savedir=checkpointdir, load=False)

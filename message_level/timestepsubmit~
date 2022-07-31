@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH --account OZTIRELI-SL3-GPU
+#SBATCH -p ampere
+#SBATCH --ntasks=4
+#SBATCH --nodes 1
+#SBATCH --gres=gpu:1
+#SBATCH --time=10:00:00
+
+export OMP_NUM_THREADS=12
+
+cd "$SLURM_SUBMIT_DIR" 
+
+export PYTHONPATH="/home/ak2149/rds/hpc-work/multi-agent-disentanglement/"
+source ../../venv/bin/activate
+cd ../timestep_level
+
+python -m disentanglement.direct_timestep_level.timestep_train
